@@ -93,3 +93,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(stats_message, parse_mode='Markdown')
     
     return MAIN_MENU
+
+# Функция для обработки обычных текстовых сообщений (ИИ-поиск)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обрабатывает текстовые запросы пользователя с помощью ИИ"""
+    query_text = update.message.text
+    
+    # Сообщаем пользователю, что запрос обрабатывается
+    processing_message = await update.message.reply_text("🔍 Обрабатываю ваш запрос...")
+    
+    try:
+        # Используем ИИ для анализа запроса
+        filters = await ai_analyze_query(query_text)
+        
+        # Сохраняем фильтры в контексте пользователя
+        context.user_data['filters'] = filters
+        context.user_data['query_text'] = query_text
+        
+        # Ищем недвижимость с помощью полученных фильтров
+        properties = db.search_properties(filters, limit=5)
+        
+        # Удаляем сообщение об обработке
+        await processing_message.delete()
+        
+        if properties:
+            # Отправляем результаты поиска
+            await send_search_results(update, context, properties, f"🔍 Результаты по запросу: *{query_text}*")
+        else:
+            # Если ничего не найдено
+            keyboard = [
+                [InlineKeyboardButton("🔄 Изменить критерии поиска", callback_data=CALLBACK_FILTER)],
+                [InlineKeyboardButton("🏠 Вернуться в главное меню", callback_data=CALLBACK_BACK)]
+            ]
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"😕 По запросу «{query_text}» ничего не найдено.\n\n"
+                "Попробуйте изменить критерии поиска или уточнить запрос.",
+                reply_markup=reply_markup
+            )
+        
+        return SEARCH
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке запроса: {e}")
+        
+        # Удаляем сообщение об обработке
+        await processing_message.delete()
+        
+        await update.message.reply_text(
+            "😢 Произошла ошибка при обработке вашего запроса.\n"
+            "Пожалуйста, попробуйте еще раз или используйте меню для поиска."
+        )
+        
+        return MAIN_MENU
+
+# Функция для обработки кнопок
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Обрабатывает нажатия на кнопки"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
